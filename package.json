@@ -1,0 +1,29 @@
+{
+  "name": "rewind-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A local-first visual time machine for the web.",
+  "scripts": {
+    "start": "node server.mjs",
+    "dev": "node --watch server.mjs",
+    "test": "node --test",
+    "test:e2e": "node scripts/smoke.mjs",
+    "test:ui": "node scripts/ux-check.mjs",
+    "browser:install": "playwright install chromium --with-deps",
+    "browser:libs:local": "node scripts/linux-browser-libs.mjs",
+    "test:capture": "node scripts/capture-check.mjs",
+    "test:records": "node scripts/record-tools-check.mjs",
+    "test:page-calendar": "node scripts/page-calendar-check.mjs",
+    "test:design": "node scripts/design-check.mjs",
+    "test:usability": "node scripts/usability-check.mjs"
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "dependencies": {
+    "playwright": "^1.58.0",
+    "pngjs": "^7.0.0"
+  },
+  "license": "MIT"
+}

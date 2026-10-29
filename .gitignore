@@ -1,0 +1,13 @@
+node_modules/
+data/
+test-results/
+.DS_Store
+*.log
+.env.local
+
+# Local configuration and generated demo artifacts
+.env
+.env.*
+!.env.example
+docs/demo.png
+docs/demo.webm

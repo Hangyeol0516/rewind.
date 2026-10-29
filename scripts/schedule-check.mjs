@@ -1,0 +1,90 @@
+import {showScheduleSettings,showAdvancedRegistration} from './ui-test-helpers.mjs';
+// Isolated server data only. Uses a held registration, so this never visits its URL.
+import assert from 'node:assert/strict';
+import {DatabaseSync} from 'node:sqlite';
+import {randomUUID} from 'node:crypto';
+import {resolve} from 'node:path';
+import {chromium} from 'playwright';
+if(!process.env.REWIND_DATA_DIR)throw new Error('Set an isolated REWIND_DATA_DIR shared with the test server.');
+const base=process.env.REWIND_URL || 'http://127.0.0.1:4318';
+const db=new DatabaseSync(resolve(process.env.REWIND_DATA_DIR,'rewind.sqlite'));
+const id=randomUUID();
+db.prepare('INSERT INTO sites (id,url,title,created_at,daily,paused) VALUES (?,?,?,?,1,1)').run(id,`https://example.com/?schedule-test=${id}`,'일정 테스트',new Date().toISOString());
+const browser=await chromium.launch({env:{...process.env,LD_LIBRARY_PATH:resolve('data/browser-libs/usr/lib/x86_64-linux-gnu')}});
+const page=await browser.newPage({viewport:{width:390,height:844}});
+const errors=[];page.on('pageerror',error=>errors.push(error.message));
+const api=async(path,method='GET',data)=>{const response=await fetch(base+path,{method,headers:{'Content-Type':'application/json'},body:data===undefined?undefined:JSON.stringify(data)});return {status:response.status,body:await response.json()};};
+try {
+ let row=db.prepare('SELECT * FROM sites WHERE id=?').get(id);assert.equal(row.interval_hours,24);assert.equal(row.schedule_mode,'interval');
+ await page.goto(`${base}/?site=${id}`);
+ await showScheduleSettings(page);await page.locator('#schedule-config').waitFor();
+ assert.match(await page.locator('#schedule-config').textContent(),/24시간/);
+ await showScheduleSettings(page);await page.locator('#schedule-config').click();
+ await page.locator('#settings-interval').fill('5');
+ await page.locator('#save-settings').click();
+ await page.waitForFunction(()=>document.querySelector('#schedule-config').textContent.includes('5시간'));
+ row=db.prepare('SELECT * FROM sites WHERE id=?').get(id);assert.equal(row.interval_hours,5);assert.equal(row.paused,1);
+ await showScheduleSettings(page);await page.locator('#schedule-config').click();
+ await page.locator('#settings-schedule-mode').selectOption('daily_time');
+ assert.equal(await page.locator('#settings-hours-fields').isVisible(),false);
+ await page.locator('#settings-daily-time').fill('09:30');
+ assert.match(await page.locator('#settings-schedule-preview').textContent(),/보류/);
+ await page.locator('#save-settings').click();
+ await page.waitForFunction(()=>document.querySelector('#schedule-config').textContent.includes('09:30'));
+ row=db.prepare('SELECT * FROM sites WHERE id=?').get(id);assert.equal(row.schedule_mode,'daily_time');assert.equal(row.daily_time,'09:30');assert.equal(row.interval_hours,5);
+ await page.reload();await showScheduleSettings(page);await page.locator('#schedule-config').waitFor();assert.match(await page.locator('#schedule-config').textContent(),/09:30/);
+ await showScheduleSettings(page);await page.locator('#schedule-config').click();await page.locator('#settings-schedule-mode').selectOption('interval');
+ assert.equal(await page.locator('#settings-interval').inputValue(),'5');
+ await page.locator('#settings-interval').fill('0');await page.locator('#save-settings').click();
+ assert.equal(await page.locator('#settings-dialog').evaluate(el=>el.open),true);
+ assert.equal(db.prepare('SELECT schedule_mode FROM sites WHERE id=?').get(id).schedule_mode,'daily_time');
+ await page.locator('#cancel-settings').click();
+ for(const invalid of [{interval_hours:0},{interval_hours:1.5},{interval_hours:721},{daily_time:'25:00'},{daily_time:'9:30'},{schedule_mode:'invalid'}]) {
+  const result=await api(`/api/sites/${id}`,'PATCH',{display_name:'must not mutate',...invalid});assert.equal(result.status,400);
+  assert.equal(db.prepare('SELECT display_name FROM sites WHERE id=?').get(id).display_name,null);
+ }
+ assert.equal((await api(`/api/sites/${id}/schedule`,'PATCH',{daily:false,interval_hours:0})).status,400);
+ assert.equal(db.prepare('SELECT daily FROM sites WHERE id=?').get(id).daily,1);
+ await page.locator('#mobile-add').click();
+ await showAdvancedRegistration(page);await page.locator('#add-schedule-mode').selectOption('interval');
+ await showAdvancedRegistration(page);await page.locator('#add-interval').selectOption('custom');
+ assert.equal(await page.locator('#add-custom-fields').isVisible(),true);
+ await showAdvancedRegistration(page);await page.locator('#add-custom-interval').fill('2');
+ await showAdvancedRegistration(page);await page.locator('#add-schedule-mode').selectOption('daily_time');
+ assert.equal(await page.locator('#add-clock-fields').isVisible(),true);
+ assert.equal(await page.locator('#add-hours-fields').isVisible(),false);
+ await showAdvancedRegistration(page);await page.locator('#add-daily-time').fill('23:15');
+ let submitted;
+ await page.route('**/api/sites',route=>{
+  if(route.request().method()==='POST'){submitted=route.request().postDataJSON();return route.fulfill({status:400,json:{error:'Test-only submission; no site created'}});}
+  return route.continue();
+ });
+ await page.locator('#url').fill('https://example.org/');await page.locator('#submit-url').click();
+ await page.locator('#form-error').waitFor();
+ assert.equal(submitted.schedule_mode,'daily_time');assert.equal(submitted.daily_time,'23:15');
+ await showAdvancedRegistration(page);await page.locator('#add-schedule-mode').selectOption('interval');await page.locator('#submit-url').click();
+ await page.waitForFunction(()=>!document.querySelector('#submit-url').disabled);
+ assert.equal(submitted.interval_hours,2);assert.equal(submitted.schedule_mode,'interval');
+ await page.locator('input[name=frequency][value=manual]').check();
+ assert.equal(await page.locator('#add-schedule-fields').isVisible(),false);
+ await page.locator('#close-dialog').click();
+ await page.setViewportSize({width:320,height:844});await showScheduleSettings(page);await page.locator('#schedule-config').click();
+ assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+ await page.screenshot({path:'test-results/schedule-mobile.png',fullPage:true});
+ await page.locator('#cancel-settings').click();
+ // A different browser timezone must still show the configured Korea clock.
+ db.prepare('UPDATE sites SET last_attempt=? WHERE id=?').run(new Date(Date.now()+2*86400000).toISOString(),id);
+ assert.equal((await api(`/api/sites/${id}`,'PATCH',{paused:false})).status,200);
+ const overseas=await browser.newContext({timezoneId:'America/Los_Angeles'});
+ const overseasPage=await overseas.newPage();overseasPage.on('pageerror',error=>errors.push(error.message));
+ await overseasPage.goto(`${base}/?site=${id}`);await showScheduleSettings(overseasPage);await overseasPage.locator('#schedule-config').waitFor();
+ assert.match(await overseasPage.locator('.schedule-summary').textContent(),/09:30/);
+ assert.match(await overseasPage.locator('.schedule-summary').textContent(),/한국 시간/);
+ await overseas.close();
+ assert.equal((await api(`/api/sites/${id}`,'PATCH',{paused:true})).status,200);
+ db.prepare('UPDATE sites SET last_attempt=NULL WHERE id=?').run(id);
+ assert.equal(db.prepare('SELECT count(*) AS n FROM captures WHERE site_id=?').get(id).n,0);
+ row=db.prepare('SELECT * FROM sites WHERE id=?').get(id);assert.equal(row.last_attempt,null,'held registration was never captured');
+ assert.deepEqual(errors,[]);
+ console.log('PASS: legacy defaults, 5-hour setting, daily 09:30, Korea time UI, persistence, inactive preference preservation, held state, invalid API rejection, registration payloads, mobile');
+} finally {await browser.close();await api(`/api/sites/${id}`,'DELETE');db.close();}
