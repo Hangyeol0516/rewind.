@@ -15,3 +15,8 @@ export async function showRecordBrowser(page) {
 export async function closeRecordBrowser(page) {
  if(await page.locator('#record-browser').evaluate(el=>el.open))await page.locator('#close-records').click();
 }
+export async function showTimelineFilters(page) {
+ await showRecordBrowser(page);
+ const filters=page.locator('#timeline-filters');
+ if(!await filters.evaluate(el=>el.open))await page.locator('#timeline-filter-toggle').click();
+}

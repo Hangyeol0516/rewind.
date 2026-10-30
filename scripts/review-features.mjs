@@ -1,3 +1,4 @@
+import {showTimelineFilters} from './ui-test-helpers.mjs';
 // Read-only deployment verification: all browser mutation requests are blocked.
 import assert from 'node:assert/strict';
 import {chromium} from 'playwright';
@@ -30,7 +31,7 @@ try {
   if(width<600)await page.waitForFunction(()=>document.activeElement.id==='mobile-menu');
  }
  const first=sites.find(s=>s.captures.length);
- if(first){await page.locator(`.card-title[data-site="${first.id}"]`).click();if(!await page.locator('#change-filter').isVisible())await page.locator('#browse-records').click();await page.locator('#change-filter').waitFor();await page.selectOption('#change-filter','unavailable');await page.screenshot({path:resolve(directory,'live-changes-390.png')});}
+ if(first){await page.locator(`.card-title[data-site="${first.id}"]`).click();await showTimelineFilters(page);await page.locator('#change-filter').waitFor();await page.selectOption('#change-filter','unavailable');await page.screenshot({path:resolve(directory,'live-changes-390.png')});}
  assert.deepEqual(errors,[]);assert.deepEqual(mutations,[]);
  const result={http:200,sites:sites.length,records:sites.reduce((n,s)=>n+s.captures.length,0),existingRecordsPreserved:!!before,mutations:mutations.length,widths:[1440,390]};
  await writeFile(resolve(directory,'live-result.json'),JSON.stringify(result,null,2));console.log(result);

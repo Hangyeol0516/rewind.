@@ -1,3 +1,4 @@
+import {showTimelineFilters} from './ui-test-helpers.mjs';
 // UI state checks use isolated in-browser fixtures; never mutate the server archive.
 import assert from 'node:assert/strict';
 import {chromium} from 'playwright';
@@ -113,6 +114,7 @@ try {
   await page.locator('#single-mode').click();
   assert.match(page.url(),/site=alpha/);
   assert.ok(!page.url().includes('mode=compare'));
+  await showTimelineFilters(page);
   await page.locator('#timeline-date').fill('2026-10-27');
   await page.locator('#timeline-date').dispatchEvent('change');
   await page.locator('#empty-clear-date').waitFor();
@@ -273,6 +275,8 @@ try {
   assert.equal(await page.locator('.moment').first().getAttribute('data-capture'),'h12','share link brings selected history into view');
   assert.equal(await page.locator('#target-before').getAttribute('aria-pressed'),'true');
   await page.locator('#target-after').click();
+  assert.equal(await page.locator('.moment').first().getAttribute('data-capture'),'h0','switching target reveals its current record');
+  await page.locator('#timeline-next').click();
   await page.locator('.moment[data-capture="h18"]').click();
   assert.equal(await page.locator('#after-select').inputValue(),'h18');
   assert.equal(await page.locator('#before-select').inputValue(),'h0','selecting opposite record swaps predictably');

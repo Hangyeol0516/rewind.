@@ -1,3 +1,4 @@
+import {showTimelineFilters} from './ui-test-helpers.mjs';
 import {showRecordBrowser,closeRecordBrowser} from './ui-test-helpers.mjs';
 // Run against an isolated server; fixtures never request an external website.
 import assert from 'node:assert/strict';
@@ -48,6 +49,7 @@ try{
  await page.locator('#edit-record-note').click();await page.locator('#record-note-input').fill('리뉴얼 전\n<script>메모는 텍스트로</script>');await page.locator('#save-record-note').click();await page.locator('#record-note-dialog').waitFor({state:'hidden'});
  assert.match(await page.locator('.record-note').textContent(),/<script>/);assert.equal(await page.locator('.record-note script').count(),0);
  await page.reload();await page.locator('#important-record').waitFor();assert.equal(await page.locator('#important-record').getAttribute('aria-pressed'),'true');assert.match(await page.locator('.record-note').textContent(),/리뉴얼/);
+ await showTimelineFilters(page);
  await page.locator('#important-only').click();assert.equal(await page.locator('.moment').count(),1);
  await page.locator('#important-record').click();await page.locator('#empty-clear-date').waitFor();await page.locator('#empty-clear-date').click();assert.equal(await page.locator('.moment').count(),12);
  await page.locator('#important-record').click();await page.waitForFunction(()=>document.querySelector('#important-record').getAttribute('aria-pressed')==='true');

@@ -18,7 +18,8 @@
     "test:design": "node scripts/design-check.mjs",
     "test:usability": "node scripts/usability-check.mjs",
     "test:features": "node scripts/features-check.mjs",
-    "test:workspace": "node scripts/workspace-design-check.mjs"
+    "test:workspace": "node scripts/workspace-design-check.mjs",
+    "test:polish": "node scripts/polish-check.mjs"
   },
   "engines": {
     "node": ">=22.13.0"

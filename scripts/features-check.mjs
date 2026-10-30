@@ -1,3 +1,4 @@
+import {showTimelineFilters} from './ui-test-helpers.mjs';
 // All API requests are mocked. This exercises UI flows without touching archive data.
 import assert from 'node:assert/strict';
 import {chromium} from 'playwright';
@@ -37,6 +38,7 @@ await page.locator('#clear-search').click();await page.locator('#clear-organizat
 await page.locator('[data-site="s0"].card-title').click();await page.locator('#edit-site').click();
 await page.locator('.organization-settings summary').click();await page.locator('#site-group').fill('프로젝트');await page.locator('#site-tags').fill('업데이트, 관심');await page.locator('#save-settings').click();
 await page.waitForFunction(()=>!document.querySelector('#settings-dialog').open);assert.equal(sites[0].group_name,'프로젝트');assert.deepEqual(sites[0].tags,['업데이트','관심']);
+await showTimelineFilters(page);
 await page.selectOption('#change-filter','changed');assert.equal(await page.locator('.moment').count(),1);
 await page.locator('.content-analysis summary').click();await page.locator('#compare-content-baseline').click();assert.equal(await page.locator('#before-select').inputValue(),'r1');assert.equal(await page.locator('#after-select').inputValue(),'r0');
 await page.locator('#single-mode').click();await page.selectOption('#change-filter','unavailable');assert.equal(await page.locator('.moment').count(),12);
