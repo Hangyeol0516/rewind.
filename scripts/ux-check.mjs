@@ -141,7 +141,7 @@ try {
   assert.match(await page.locator('#capture-feedback').textContent(),/撮影|촬영 순서/);
   data.find(s=>s.id==='delta').capture_status='capturing';
   await page.waitForTimeout(3000);
-  assert.match(await page.locator('#capture-feedback').textContent(),/새로운 순간/);
+  assert.match(await page.locator('#capture-feedback').textContent(),/새 기록을 촬영/);
   Object.assign(data.find(s=>s.id==='delta'),{capturing:false,capture_status:null,captures:[capture('d1','2026-10-28T03:00:00.000Z','Delta')]});
   await page.locator('.moment').waitFor();
   assert.equal(await page.locator('#compare-mode').isDisabled(),true);

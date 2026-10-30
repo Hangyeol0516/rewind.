@@ -67,10 +67,18 @@ export async function capturePage({url,path,captureMode='viewport',env=process.e
   const pageHeight=await page.evaluate(()=>Math.max(document.documentElement.scrollHeight,document.body?.scrollHeight||0,1000));
   const height=captureMode==='full_page' ? Math.min(pageHeight,maxHeight) : 1000;
   details.capture={mode:captureMode,width:1440,height,truncated:captureMode==='full_page' && pageHeight>maxHeight};
+  // Read rendered text, preferring the page's main content. Hidden elements do
+  // not contribute to innerText. Oversized or empty content remains unavailable.
+  const content = await page.evaluate(() => {
+   const candidates = [...document.querySelectorAll('main,article')];
+   const element = candidates.find(item => item.getClientRects().length && getComputedStyle(item).visibility !== 'hidden' && item.innerText?.trim()) || document.body;
+   const text = element?.innerText || '';
+   return {text:text.slice(0,1000000),truncated:text.length > 1000000,scope:element?.tagName.toLowerCase() || 'body'};
+  }).catch(() => ({text:'',truncated:false,scope:null}));
   details.stage='screenshot';
   const buffer=await page.screenshot({path,fullPage:captureMode==='full_page',...(captureMode==='full_page' ? {clip:{x:0,y:0,width:1440,height}} : {}),animations:'disabled',timeout:15000});
   details.stage='saved';details.elapsed_ms=Date.now()-started;
-  return {title,buffer,details};
+  return {title,buffer,details,content};
  } catch(error) {
   details.elapsed_ms=Date.now()-started;details.error=error.message;
   throw new CaptureFailure(error.message,details);

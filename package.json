@@ -16,7 +16,8 @@
     "test:records": "node scripts/record-tools-check.mjs",
     "test:page-calendar": "node scripts/page-calendar-check.mjs",
     "test:design": "node scripts/design-check.mjs",
-    "test:usability": "node scripts/usability-check.mjs"
+    "test:usability": "node scripts/usability-check.mjs",
+    "test:features": "node scripts/features-check.mjs"
   },
   "engines": {
     "node": ">=22.13.0"

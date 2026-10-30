@@ -4066,3 +4066,57 @@ body { font-size:15px; }
  dialog .icon-button { min-width:44px; min-height:44px; }
  dialog .dialog-actions button { min-height:44px; }
 }
+
+/* Organization, capture activity and content discovery share the existing surfaces. */
+.organization-filters { display:flex;align-items:center;flex-wrap:wrap;gap:8px 16px;margin-top:12px; }
+.organization-filters label,.activity-toolbar label,.change-filter { display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13px; }
+.organization-filters select { max-width:190px;min-width:110px; }
+.organization-filters select,.activity-toolbar select,.change-filter select { min-height:40px;font-size:13px; }
+.site-classification { display:flex;gap:4px;margin-top:4px;max-width:100%;overflow:hidden;color:var(--green-text);font-size:12px;line-height:20px; }
+.site-classification span { background:var(--green-soft);padding:0 5px;border-radius:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:140px;flex-shrink:0; }
+.site-classification span:first-child { flex-shrink:1; }
+.organization-settings { margin:16px 0;padding:12px;border:1px solid var(--line);border-radius:var(--radius); }
+.organization-settings summary { cursor:pointer;font-size:14px;font-weight:500;min-height:28px; }
+.organization-settings[open] summary { margin-bottom:12px; }
+.organization-settings input { width:100%; }
+.activity-dialog { width:min(760px,calc(100vw - 32px));max-height:85dvh;overflow:auto; }
+.activity-dialog h2 { margin:0; }
+.activity-toolbar { display:flex;gap:12px;align-items:end;flex-wrap:wrap;margin:20px 0 12px; }
+.activity-toolbar label { flex:1;flex-direction:column;align-items:stretch;min-width:120px; }
+.activity-toolbar select { width:100%;min-width:0;max-width:100%; }
+.activity-list { list-style:none;padding:0;margin:16px 0; }
+.activity-list li { padding:16px 0;border-top:1px solid var(--line);font-size:14px; }
+.attempt-heading { display:flex;gap:12px;align-items:start;justify-content:space-between;margin-bottom:8px; }
+.attempt-heading strong { overflow-wrap:anywhere; }
+.attempt-heading .badge { flex-shrink:0; }
+.activity-list time,.attempt-duration { font-size:13px;color:var(--muted); }
+.attempt-error { margin:10px 0 6px;color:var(--danger);line-height:1.6; }
+.activity-list details summary { font-size:13px;color:var(--muted);cursor:pointer;min-height:32px;display:flex;align-items:center; }
+.attempt-raw { overflow-wrap:anywhere;background:var(--surface-subtle);padding:12px;font-size:13px;line-height:1.6; }
+.attempt-actions { display:flex;flex-wrap:wrap;gap:8px;margin-top:8px; }
+.activity-queue,.activity-empty { padding:20px;background:var(--surface-subtle);border-radius:var(--radius);font-size:14px; }
+.content-analysis { padding:12px 0;border-top:1px solid var(--line);font-size:13px;line-height:1.7; }
+.content-analysis summary { display:flex;align-items:center;gap:12px;cursor:pointer;min-height:36px;color:var(--muted); }
+.analysis-state { color:var(--text);font-weight:500; }
+.analysis-state.changed,.moment-change { color:var(--green-text);background:var(--green-soft);padding:2px 6px;border-radius:3px; }
+.content-analysis p { margin:8px 0; }
+.content-analysis blockquote { margin:12px 0;padding:8px 12px;border-left:2px solid var(--border-strong);color:var(--muted);overflow-wrap:anywhere; }
+.moment-change { display:inline-block;font-size:12px;margin-top:4px; }
+@media(max-width:600px) {
+ .organization-filters { gap:8px; }
+ .organization-filters label { flex:1;min-width:0; }
+ .organization-filters select { width:100%;min-width:0;max-width:100%;height:44px; }
+ .organization-filters #clear-organization { min-height:44px; }
+ .activity-dialog { padding:20px;width:calc(100vw - 20px);max-height:92dvh; }
+ .activity-toolbar { gap:8px; }
+ .activity-toolbar select,.activity-toolbar button,.attempt-actions button,#activity-more,.change-filter select { min-height:44px; }
+ .activity-toolbar>button { flex-basis:100%; }
+ .change-filter { flex-basis:100%;justify-content:space-between; }
+ .change-filter select { flex:1;min-width:0; }
+}
+.activity-dialog[open] { display:flex;flex-direction:column;overflow:hidden; }
+.activity-dialog>.dialog-top,.activity-dialog>.activity-toolbar,.activity-dialog>.form-note,.activity-dialog>#activity-more { flex-shrink:0; }
+#activity-results { overflow:auto;min-height:0;overscroll-behavior:contain;padding-right:4px; }
+#activity-more { margin-top:12px; }
+
+@media(max-width:600px) { .organization-settings summary,.activity-list details summary,.content-analysis summary { min-height:44px; } }

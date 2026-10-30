@@ -9,6 +9,7 @@ import { capturePage } from './capture-browser.mjs';
 import { PNG } from 'pngjs';
 import { normalizeUrl, assertPublicUrl } from './lib.mjs';
 import { validateSchedule, isCaptureDue } from './public/schedule.js';
+import {validateOrganization, parseTags, analyzeContent} from './content-analysis.mjs';
 
 const root = dirname(fileURLToPath(import.meta.url));
 try { process.loadEnvFile(resolve(root,'.env.local')); } catch (error) { if (error.code !== 'ENOENT') throw error; }
@@ -32,6 +33,8 @@ if (!siteColumns.has('interval_minutes')) {
 if (!siteColumns.has('schedule_mode')) db.exec("ALTER TABLE sites ADD COLUMN schedule_mode TEXT NOT NULL DEFAULT 'interval'");
 if (!siteColumns.has('capture_mode')) db.exec("ALTER TABLE sites ADD COLUMN capture_mode TEXT NOT NULL DEFAULT 'viewport'");
 if (!siteColumns.has('daily_time')) db.exec("ALTER TABLE sites ADD COLUMN daily_time TEXT NOT NULL DEFAULT '09:00'");
+if (!siteColumns.has('tags')) db.exec("ALTER TABLE sites ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'");
+if (!siteColumns.has('group_name')) db.exec("ALTER TABLE sites ADD COLUMN group_name TEXT NOT NULL DEFAULT ''");
 if (!db.prepare('PRAGMA table_info(captures)').all().some(column => column.name === 'source')) db.exec("ALTER TABLE captures ADD COLUMN source TEXT NOT NULL DEFAULT 'browser'");
 const captureColumns = new Set(db.prepare('PRAGMA table_info(captures)').all().map(column => column.name));
 if (!captureColumns.has('important')) db.exec('ALTER TABLE captures ADD COLUMN important INTEGER NOT NULL DEFAULT 0');
@@ -39,10 +42,19 @@ if (!captureColumns.has('note')) db.exec("ALTER TABLE captures ADD COLUMN note T
 for (const [name,definition] of [['width','INTEGER NOT NULL DEFAULT 1440'],['height','INTEGER NOT NULL DEFAULT 1000'],['capture_mode',"TEXT NOT NULL DEFAULT 'viewport'"],['truncated','INTEGER NOT NULL DEFAULT 0']]) {
  if (!captureColumns.has(name)) db.exec(`ALTER TABLE captures ADD COLUMN ${name} ${definition}`);
 }
+for (const [name,definition] of [
+ ['content_hash','TEXT'], ['content_excerpt','TEXT'], ['content_scope','TEXT'], ['content_url','TEXT'],
+ ['content_change',"TEXT NOT NULL DEFAULT 'unavailable'"],
+ ['content_summary',"TEXT NOT NULL DEFAULT '본문 텍스트 분석이 없는 기록이에요.'"], ['compared_capture_id','TEXT'],
+]) {
+ if (!captureColumns.has(name)) db.exec(`ALTER TABLE captures ADD COLUMN ${name} ${definition}`);
+}
 db.exec(`CREATE TABLE IF NOT EXISTS capture_attempts (
  id TEXT PRIMARY KEY, site_id TEXT NOT NULL REFERENCES sites(id) ON DELETE CASCADE,
  started_at TEXT NOT NULL, finished_at TEXT, status TEXT NOT NULL, error TEXT, capture_id TEXT REFERENCES captures(id) ON DELETE SET NULL);
- CREATE INDEX IF NOT EXISTS capture_attempts_site_date ON capture_attempts(site_id,started_at);`);
+ CREATE INDEX IF NOT EXISTS capture_attempts_site_date ON capture_attempts(site_id,started_at);
+ CREATE INDEX IF NOT EXISTS capture_attempts_date ON capture_attempts(started_at DESC);
+ CREATE INDEX IF NOT EXISTS capture_attempts_status_date ON capture_attempts(status,started_at DESC);`);
 db.prepare("UPDATE capture_attempts SET status='failed',error='서버가 종료되어 촬영을 마치지 못했어요.',finished_at=? WHERE status='running'").run(new Date().toISOString());
 // Only the latest legacy failure is known; earlier failures cannot be reconstructed.
 db.exec(`INSERT INTO capture_attempts (id,site_id,started_at,finished_at,status,error)
@@ -74,7 +86,7 @@ function logDenied(req, clientIp) {
 async function sites() {
  return Promise.all(db.prepare('SELECT * FROM sites ORDER BY created_at DESC').all().map(async s => {
   const recheck = await readFile(resolve(data,`recheck-${s.id}.json`),'utf8').then(JSON.parse).catch(() => null);
-  return {...s, title:s.display_name || s.title, page_title:s.title, recheck, capturing: jobs.has(s.id), capture_status: jobs.get(s.id)?.phase || null, captures: db.prepare('SELECT * FROM captures WHERE site_id=? ORDER BY created_at DESC').all(s.id).map(c => ({...c, image: `/captures/${c.id}.png`}))};
+  return {...s, tags:parseTags(s.tags), title:s.display_name || s.title, page_title:s.title, recheck, capturing: jobs.has(s.id), capture_status: jobs.get(s.id)?.phase || null, captures: db.prepare('SELECT * FROM captures WHERE site_id=? ORDER BY created_at DESC').all(s.id).map(c => ({...c, image: `/captures/${c.id}.png`}))};
  }));
 }
 function capture(id) {
@@ -95,9 +107,11 @@ function capture(id) {
   try {
    const captureId = randomUUID();
    path = resolve(data,'captures',`${captureId}.png`);
-   const {title,buffer,details} = await capturePage({url:site.url,path,captureMode:site.capture_mode,env:{...process.env,LD_LIBRARY_PATH:[resolve(data,'browser-libs/usr/lib/x86_64-linux-gnu'),process.env.LD_LIBRARY_PATH].filter(Boolean).join(':')}});
+   const {title,buffer,details,content} = await capturePage({url:site.url,path,captureMode:site.capture_mode,env:{...process.env,LD_LIBRARY_PATH:[resolve(data,'browser-libs/usr/lib/x86_64-linux-gnu'),process.env.LD_LIBRARY_PATH].filter(Boolean).join(':')}});
    await saveDiagnostic(details);
-   db.prepare('INSERT INTO captures (id,site_id,created_at,title,bytes,width,height,capture_mode,truncated) VALUES (?,?,?,?,?,?,?,?,?)').run(captureId,id,new Date().toISOString(),title,buffer.length,buffer.readUInt32BE(16),buffer.readUInt32BE(20),site.capture_mode,Number(details.capture.truncated));
+   const previous = db.prepare('SELECT * FROM captures WHERE site_id=? ORDER BY created_at DESC,rowid DESC LIMIT 1').get(id);
+   const analysis = analyzeContent(content,previous,site.url);
+   db.prepare('INSERT INTO captures (id,site_id,created_at,title,bytes,width,height,capture_mode,truncated,content_hash,content_excerpt,content_scope,content_url,content_change,content_summary,compared_capture_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').run(captureId,id,new Date().toISOString(),title,buffer.length,buffer.readUInt32BE(16),buffer.readUInt32BE(20),site.capture_mode,Number(details.capture.truncated),analysis.content_hash,analysis.content_excerpt,analysis.content_scope,analysis.content_url,analysis.content_change,analysis.content_summary,analysis.compared_capture_id);
    db.prepare("UPDATE capture_attempts SET status='success',finished_at=?,capture_id=? WHERE id=?").run(new Date().toISOString(),captureId,attemptId);
    db.prepare('UPDATE sites SET title=?, error=NULL WHERE id=?').run(title,id);
   } catch (error) {
@@ -127,6 +141,29 @@ const server = http.createServer(async (req,res) => {
    if (!req.headers['content-type']?.startsWith('application/json')) return json(res,415,{error:'JSON 요청만 지원합니다.'});
   }
   const path = new URL(req.url, origin).pathname;
+  if (path === '/api/attempts' && req.method === 'GET') {
+   const query = new URL(req.url,origin).searchParams;
+   const integer = (name,fallback,max) => {
+    const value = query.get(name);
+    if (value === null) return fallback;
+    if (!/^\d+$/.test(value) || !Number.isSafeInteger(Number(value)) || Number(value) > max || (name === 'limit' && Number(value) < 1)) throw new Error('조회 개수 또는 시작 위치를 확인해 주세요.');
+    return Number(value);
+   };
+   const limit = integer('limit',50,100), offset = integer('offset',0,100000);
+   const status = query.get('status') || 'all', siteId = query.get('site_id');
+   if (!['all','failed','success','running'].includes(status)) throw new Error('조회할 촬영 상태를 확인해 주세요.');
+   if (siteId !== null && !db.prepare('SELECT id FROM sites WHERE id=?').get(siteId)) return json(res,404,{error:'사이트를 찾을 수 없어요.'});
+   const where = [], values = [];
+   if (siteId !== null) { where.push('a.site_id=?'); values.push(siteId); }
+   if (status !== 'all') { where.push('a.status=?'); values.push(status); }
+   const rows = db.prepare(`SELECT a.*,COALESCE(NULLIF(s.display_name,''),s.title) AS site_title,s.url AS site_url,s.paused,s.daily FROM capture_attempts a JOIN sites s ON s.id=a.site_id ${where.length ? 'WHERE '+where.join(' AND ') : ''} ORDER BY a.started_at DESC,a.rowid DESC LIMIT ? OFFSET ?`).all(...values,limit+1,offset);
+   const hasMore = rows.length > limit;
+   const queued = [...jobs].filter(([id,job]) => job.phase === 'queued' && (siteId === null || siteId === id)).map(([id]) => {
+    const site = db.prepare('SELECT id,title,display_name,url FROM sites WHERE id=?').get(id);
+    return {site_id:id,site_title:site.display_name || site.title,site_url:site.url,status:'queued'};
+   });
+   return json(res,200,{attempts:rows.slice(0,limit),has_more:hasMore,next_offset:hasMore ? offset+limit : null,queued});
+  }
   const historyMatch=path.match(/^\/api\/sites\/([\w-]+)\/history$/);
   if (historyMatch && req.method==='GET') {
    const id=historyMatch[1], query=new URL(req.url,origin).searchParams;
@@ -140,6 +177,7 @@ const server = http.createServer(async (req,res) => {
   if (path === '/api/sites' && req.method === 'GET') return json(res,200,{sites:await sites()});
   if (path === '/api/sites' && req.method === 'POST') {
    const input = await body(req);
+   const organization = validateOrganization(input);
    const url = normalizeUrl(input.url);
    if (input.daily !== undefined && typeof input.daily !== 'boolean') throw new Error('daily 값은 boolean이어야 합니다.');
    const schedule = validateSchedule(input);
@@ -148,7 +186,7 @@ const server = http.createServer(async (req,res) => {
    await assertPublicUrl(url);
    if (db.prepare('SELECT id FROM sites WHERE url=?').get(url)) return json(res,409,{error:'이미 기록 중인 사이트예요.'});
    const id = randomUUID();
-   db.prepare('INSERT INTO sites (id,url,title,created_at,daily,schedule_mode,interval_hours,daily_time,capture_mode,interval_minutes) VALUES (?,?,?,?,?,?,?,?,?,?)').run(id,url,new URL(url).hostname,new Date().toISOString(),input.daily === false ? 0 : 1,schedule.schedule_mode,schedule.interval_hours,schedule.daily_time,captureMode,schedule.interval_minutes);
+   db.prepare('INSERT INTO sites (id,url,title,created_at,daily,schedule_mode,interval_hours,daily_time,capture_mode,interval_minutes,tags,group_name) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)').run(id,url,new URL(url).hostname,new Date().toISOString(),input.daily === false ? 0 : 1,schedule.schedule_mode,schedule.interval_hours,schedule.daily_time,captureMode,schedule.interval_minutes,JSON.stringify(organization.tags || []),organization.group_name || '');
    capture(id);
    return json(res,201,{id});
   }
@@ -215,8 +253,9 @@ const server = http.createServer(async (req,res) => {
    }
    if (!action && req.method === 'PATCH') {
     const input = await body(req);
+    const organization = validateOrganization(input);
     const schedule = validateSchedule(input,{partial:true});
-    if (input.display_name === undefined && input.favorite === undefined && input.url === undefined && input.paused === undefined && input.capture_mode === undefined && !Object.keys(schedule).length) throw new Error('변경할 설정이 없어요.');
+    if (input.display_name === undefined && input.favorite === undefined && input.url === undefined && input.paused === undefined && input.capture_mode === undefined && !Object.keys(schedule).length && !Object.keys(organization).length) throw new Error('변경할 설정이 없어요.');
     if (input.capture_mode !== undefined && !['viewport','full_page'].includes(input.capture_mode)) throw new Error('촬영 범위를 선택해 주세요.');
     if (input.capture_mode !== undefined && jobs.has(id) && input.capture_mode !== db.prepare('SELECT capture_mode FROM sites WHERE id=?').get(id).capture_mode) return json(res,409,{error:'촬영이 끝난 뒤 범위를 변경해 주세요.'});
     if (input.display_name !== undefined && (typeof input.display_name !== 'string' || input.display_name.trim().length > 100)) throw new Error('사이트 이름은 100자 이내로 입력해 주세요.');
@@ -231,6 +270,8 @@ const server = http.createServer(async (req,res) => {
      else if (jobs.has(id)) return json(res,409,{error:'촬영이 끝난 뒤 주소를 변경해 주세요.'});
     }
     if (input.capture_mode !== undefined) db.prepare('UPDATE sites SET capture_mode=? WHERE id=?').run(input.capture_mode,id);
+    if (organization.tags !== undefined) db.prepare('UPDATE sites SET tags=? WHERE id=?').run(JSON.stringify(organization.tags),id);
+    if (organization.group_name !== undefined) db.prepare('UPDATE sites SET group_name=? WHERE id=?').run(organization.group_name,id);
     if (input.display_name !== undefined) db.prepare('UPDATE sites SET display_name=? WHERE id=?').run(input.display_name.trim() || null,id);
     if (input.favorite !== undefined) db.prepare('UPDATE sites SET favorite=? WHERE id=?').run(Number(input.favorite),id);
     if (input.paused !== undefined) db.prepare('UPDATE sites SET paused=? WHERE id=?').run(Number(input.paused),id);

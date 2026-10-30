@@ -1,0 +1,74 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {DatabaseSync} from 'node:sqlite';
+import {spawn} from 'node:child_process';
+import {mkdtemp,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {resolve} from 'node:path';
+import {createServer} from 'node:net';
+
+test('additive migrations, organization PATCH and bounded attempts API preserve legacy records', async t => {
+ const directory = await mkdtemp(resolve(tmpdir(),'rewind-features-api-'));
+ const path = resolve(directory,'rewind.sqlite');
+ const legacy = new DatabaseSync(path);
+ legacy.exec(`CREATE TABLE sites (id TEXT PRIMARY KEY,url TEXT UNIQUE NOT NULL,title TEXT NOT NULL,created_at TEXT NOT NULL,daily INTEGER DEFAULT 1,last_attempt TEXT,error TEXT);
+ CREATE TABLE captures (id TEXT PRIMARY KEY,site_id TEXT NOT NULL REFERENCES sites(id) ON DELETE CASCADE,created_at TEXT NOT NULL,title TEXT,bytes INTEGER);
+ INSERT INTO sites VALUES ('one','https://one.example/','One','2026-10-01T00:00:00.000Z',0,NULL,NULL);
+ INSERT INTO sites VALUES ('two','https://two.example/','Two','2026-10-01T00:00:00.000Z',0,NULL,NULL);
+ INSERT INTO captures VALUES ('legacy-record','one','2026-10-01T01:00:00.000Z','Original title',1234);`);
+ legacy.close();
+ const probe = createServer();
+ await new Promise(resolveListen => probe.listen(0,'127.0.0.1',resolveListen));
+ const port = probe.address().port;
+ await new Promise(done => probe.close(done));
+ const child = spawn(process.execPath,['server.mjs'],{cwd:resolve(import.meta.dirname,'..'),env:{...process.env,REWIND_DATA_DIR:directory,ALLOWED_IPS:'',HOST:'127.0.0.1',PORT:String(port)},stdio:['ignore','pipe','pipe']});
+ let output = '';
+ child.stderr.on('data',chunk => output += chunk);
+ const stopped = new Promise(resolveExit => child.once('exit',resolveExit));
+ t.after(async () => { child.kill('SIGTERM'); await stopped; await rm(directory,{recursive:true,force:true}); });
+ await new Promise((ready,reject) => {
+  const timer = setTimeout(() => reject(new Error('Test server did not start: '+output)),10000);
+  child.stdout.on('data',chunk => { if (chunk.toString().includes('Rewind →')) { clearTimeout(timer); ready(); } });
+  child.once('exit',code => { clearTimeout(timer); reject(new Error('Test server exited: '+code+' '+output)); });
+ });
+ const request = async (path,method='GET',input) => {
+  const response = await fetch(`http://127.0.0.1:${port}${path}`,{method,headers:{'Content-Type':'application/json',Connection:'close'},body:input===undefined ? undefined : JSON.stringify(input)});
+  return {status:response.status,body:await response.json()};
+ };
+ const initial = (await request('/api/sites')).body.sites.find(site => site.id === 'one');
+ assert.deepEqual(initial.tags,[]); assert.equal(initial.group_name,'');
+ assert.equal(initial.captures[0].title,'Original title');
+ assert.equal(initial.captures[0].bytes,1234);
+ assert.equal(initial.captures[0].content_change,'unavailable');
+ assert.match(initial.captures[0].content_summary,/분석이 없는/);
+ assert.equal((await request('/api/sites/one','PATCH',{tags:[' 뉴스 ','업무','뉴스'],group_name:' 읽기 '})).status,200);
+ const updated = (await request('/api/sites')).body.sites.find(site => site.id === 'one');
+ assert.deepEqual(updated.tags,['뉴스','업무']); assert.equal(updated.group_name,'읽기');
+ for (const invalid of [{tags:['']},{tags:'news'},{tags:Array(21).fill('x')},{group_name:'x'.repeat(61)}]) {
+  assert.equal((await request('/api/sites/one','PATCH',{display_name:'must not save',...invalid})).status,400);
+ }
+ assert.equal((await request('/api/sites')).body.sites.find(site => site.id === 'one').title,'One');
+ assert.equal((await request('/api/sites','POST',{url:'https://example.com/',tags:[1]})).status,400);
+ const db = new DatabaseSync(path);
+ t.after(() => db.close());
+ const insert = db.prepare('INSERT INTO capture_attempts (id,site_id,started_at,finished_at,status,error,capture_id) VALUES (?,?,?,?,?,?,?)');
+ for (let i=0;i<105;i++) insert.run(`attempt-${i}`,i%2 ? 'one' : 'two',new Date(Date.UTC(2026,9,1,0,i)).toISOString(),null,i%3 ? 'failed' : 'success',i%3 ? 'Timeout' : null,null);
+ insert.run('running-attempt','one','2026-10-30T01:00:00.000Z',null,'running',null,null);
+ const first = await request('/api/attempts');
+ assert.equal(first.body.attempts.length,50); assert.equal(first.body.has_more,true); assert.equal(first.body.next_offset,50);
+ const second = (await request('/api/attempts?limit=50&offset=50')).body;
+ assert.equal(second.attempts.length,50);
+ assert.ok(!second.attempts.some(row => first.body.attempts.some(firstRow => row.id === firstRow.id)));
+ const last = (await request('/api/attempts?offset=100')).body;
+ assert.equal(last.attempts.length,6); assert.equal(last.has_more,false); assert.equal(last.next_offset,null);
+ const failed = (await request('/api/attempts?site_id=one&status=failed&limit=100')).body;
+ assert.ok(failed.attempts.length > 0);
+ assert.ok(failed.attempts.every(row => row.site_id === 'one' && row.status === 'failed' && row.site_title === 'One'));
+ assert.deepEqual((await request('/api/attempts?status=running')).body.attempts.map(row => row.id),['running-attempt']);
+ for (const query of ['limit=0','limit=101','limit=2.5','offset=-1','offset=100001','status=bad','limit=oops']) assert.equal((await request('/api/attempts?'+query)).status,400);
+ assert.equal((await request('/api/attempts?site_id=missing')).status,404);
+ assert.equal(db.prepare('SELECT count(*) AS count FROM captures').get().count,1);
+ assert.equal(db.prepare('SELECT count(*) AS count FROM sites WHERE last_attempt IS NOT NULL').get().count,0,'no fixture site was captured');
+ assert.equal((await request('/api/sites/one','PATCH',{tags:[],group_name:''})).status,200);
+ assert.deepEqual((await request('/api/sites')).body.sites.find(site => site.id === 'one').tags,[]);
+});
