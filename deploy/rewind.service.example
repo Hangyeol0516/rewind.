@@ -1,0 +1,15 @@
+[Unit]
+Description=Rewind web archive
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/rewind
+ExecStart=/usr/bin/node %h/rewind/server.mjs
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target

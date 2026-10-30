@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node server.mjs",
     "dev": "node --watch server.mjs",
-    "test": "node --test",
+    "test": "npm run test:unit",
     "test:e2e": "node scripts/smoke.mjs",
     "test:ui": "node scripts/ux-check.mjs",
     "browser:install": "playwright install chromium --with-deps",
@@ -19,7 +19,8 @@
     "test:usability": "node scripts/usability-check.mjs",
     "test:features": "node scripts/features-check.mjs",
     "test:workspace": "node scripts/workspace-design-check.mjs",
-    "test:polish": "node scripts/polish-check.mjs"
+    "test:polish": "node scripts/polish-check.mjs",
+    "test:unit": "node --test"
   },
   "engines": {
     "node": ">=22.13.0"
