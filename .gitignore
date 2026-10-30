@@ -1,13 +1,23 @@
+# Dependencies
 node_modules/
-data/
-test-results/
-.DS_Store
-*.log
-.env.local
 
-# Local configuration and generated demo artifacts
+# Local configuration
 .env
 .env.*
 !.env.example
+
+# Runtime and generated files
+data/
+test-results/
+coverage/
+*.log
+__pycache__/
+*.py[cod]
+
+# Local tools and OS files
+.openai/
+.DS_Store
+
+# Generated demos
 docs/demo.png
 docs/demo.webm
