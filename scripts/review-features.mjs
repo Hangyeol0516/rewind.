@@ -22,6 +22,7 @@ try {
   await page.setViewportSize({width,height:width<600?844:1000});
   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
   await page.screenshot({path:resolve(directory,`live-list-${width}.png`)});
+  await page.locator('#grid-view').click();await page.screenshot({path:resolve(directory,`live-gallery-${width}.png`)});await page.locator('#list-view').click();
   if(width<600)await page.locator('#mobile-menu').click();
   await page.locator('#open-activity').click();await page.locator('#activity-results[aria-busy=false]').waitFor();
   await page.screenshot({path:resolve(directory,`live-activity-${width}.png`)});
@@ -29,7 +30,7 @@ try {
   if(width<600)await page.waitForFunction(()=>document.activeElement.id==='mobile-menu');
  }
  const first=sites.find(s=>s.captures.length);
- if(first){await page.locator(`.card-title[data-site="${first.id}"]`).click();await page.locator('#change-filter').waitFor();await page.selectOption('#change-filter','unavailable');await page.screenshot({path:resolve(directory,'live-changes-390.png')});}
+ if(first){await page.locator(`.card-title[data-site="${first.id}"]`).click();if(!await page.locator('#change-filter').isVisible())await page.locator('#browse-records').click();await page.locator('#change-filter').waitFor();await page.selectOption('#change-filter','unavailable');await page.screenshot({path:resolve(directory,'live-changes-390.png')});}
  assert.deepEqual(errors,[]);assert.deepEqual(mutations,[]);
  const result={http:200,sites:sites.length,records:sites.reduce((n,s)=>n+s.captures.length,0),existingRecordsPreserved:!!before,mutations:mutations.length,widths:[1440,390]};
  await writeFile(resolve(directory,'live-result.json'),JSON.stringify(result,null,2));console.log(result);

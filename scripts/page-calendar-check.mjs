@@ -1,3 +1,4 @@
+import {showRecordBrowser} from './ui-test-helpers.mjs';
 import {showScheduleSettings,showAdvancedRegistration} from './ui-test-helpers.mjs';
 // Isolated synthetic images and failure logs: never requests a monitored URL.
 import assert from 'node:assert/strict';
@@ -53,7 +54,7 @@ try{
  await page.locator('#calendar-next').click();await page.locator('#calendar-day-2026-11-01').waitFor();assert.match(await page.locator('#calendar-day-2026-11-01').getAttribute('aria-label'),/실패 1회/);await page.locator('#calendar-day-2026-11-01').click();await page.waitForFunction(()=>document.querySelector('#calendar-day-events').textContent.includes('월 경계 실패'));
  await page.locator('#calendar-month').fill('2026-10');await page.locator('#calendar-month').dispatchEvent('change');await page.locator('#calendar-day-2026-10-28').waitFor();await page.locator('#calendar-day-2026-10-28').click();await page.locator(`[data-record="${old}"]`).click();assert.equal(new URL(page.url()).searchParams.get('after'),old);
  for(const width of[390,320]){
-  await page.setViewportSize({width,height:844});await page.locator('#calendar-day-2026-10-29').click();await page.locator('#calendar-day-events .calendar-attempt').waitFor();assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);await page.evaluate(()=>window.scrollTo(0,0));await page.screenshot({path:`test-results/page-calendar-${width}.png`,fullPage:true});
+  await page.setViewportSize({width,height:844});await showRecordBrowser(page);await page.locator('#calendar-day-2026-10-29').click();await page.locator('#calendar-day-events .calendar-attempt').waitFor();assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);await page.evaluate(()=>window.scrollTo(0,0));await page.screenshot({path:`test-results/page-calendar-${width}.png`,fullPage:true});
  }
  const overseas=await browser.newContext({timezoneId:'America/Los_Angeles'}),abroad=await overseas.newPage();abroad.on('pageerror',e=>errors.push(e.message));await abroad.goto(`${base}/?site=${sid}`);await abroad.locator('#record-calendar>summary').click();await abroad.locator('#calendar-day-2026-10-31').waitFor();assert.match(await abroad.locator('#calendar-day-2026-10-31').getAttribute('aria-label'),/실패 1회/);await overseas.close();
  // Failure history must survive the successful screenshot's deletion.

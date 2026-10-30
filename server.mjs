@@ -300,7 +300,7 @@ const server = http.createServer(async (req,res) => {
   }
   if (req.method !== 'GET' && req.method !== 'HEAD') return json(res,405,{error:'지원하지 않는 요청입니다.'});
   const capturePath = path.match(/^\/captures\/([a-f0-9-]{36})\.png$/);
-  const assets = {'/':'index.html','/app.js':'app.js','/view-utils.js':'view-utils.js','/schedule.js':'schedule.js','/record-tools.js':'record-tools.js','/calendar.js':'calendar.js','/diff.js':'diff.js','/style.css':'style.css'};
+  const assets = {'/':'index.html','/app.js':'app.js','/view-utils.js':'view-utils.js','/schedule.js':'schedule.js','/record-tools.js':'record-tools.js','/calendar.js':'calendar.js','/diff.js':'diff.js','/style.css':'style.css','/workspace.css':'workspace.css'};
   const file = capturePath ? resolve(data,'captures',`${capturePath[1]}.png`) : assets[path] && resolve(root,'public',assets[path]);
   if (!file) return json(res,404,{error:'페이지를 찾을 수 없어요.'});
   try {

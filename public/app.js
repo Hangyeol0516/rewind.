@@ -60,11 +60,11 @@ function rememberModal(dialog) {
  modalOrigins.set(dialog,{trigger,id:trigger?.id,scrollY:window.scrollY,stageTop:stage?.scrollTop||0,stageLeft:stage?.scrollLeft||0});
  dialog.dataset.completed='false';
 }
-for(const id of ['add-dialog','settings-dialog','inspector-dialog','activity-dialog']) {
+for(const id of ['add-dialog','settings-dialog','inspector-dialog','activity-dialog','record-browser']) {
  const dialog=document.getElementById(id);
  dialog.addEventListener('keydown',event=>{
   if(event.key!=='Tab')return;
-  const controls=[...dialog.querySelectorAll('button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),a[href],summary,[tabindex]:not([tabindex="-1"])')].filter(el=>el.getClientRects().length && !el.closest('[hidden]'));
+  const controls=[...dialog.querySelectorAll('button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),a[href],summary,[tabindex]:not([tabindex="-1"])')].filter(el=>el.getClientRects().length && !el.closest('[hidden]') && !el.closest('details:not([open]) > :not(summary)'));
   const first=controls[0],last=controls.at(-1);
   if(event.shiftKey && (document.activeElement===first || !dialog.contains(document.activeElement))){event.preventDefault();last?.focus();}
   else if(!event.shiftKey && (document.activeElement===last || !dialog.contains(document.activeElement))){event.preventDefault();first?.focus();}
@@ -444,6 +444,7 @@ function renderArchive() {
   const active = document.activeElement;
   const focusFavorite = active?.dataset.favorite;
   const focusCapture = active?.dataset.captureSite;
+  arrangeArchiveToolbar();
   renderOrganizationFilters();
   const query = $('#search').value.trim().toLowerCase();
   const counts = {all:sites.length, favorite:sites.filter(s => s.favorite).length, daily:sites.filter(s => s.daily && !s.paused).length, manual:sites.filter(s => !s.daily && !s.paused).length, paused:sites.filter(s => s.paused).length, error:sites.filter(s => s.error && !s.paused).length};
@@ -458,7 +459,8 @@ function renderArchive() {
   for (const [id,value] of [['grid-view','grid'],['list-view','list']]) { $(`#${id}`).setAttribute('aria-pressed',String(layout === value)); }
   const available = list.filter(site => !site.paused && !site.capturing && !pending.has(site.id));
   $('#capture-visible').disabled = !available.length || disconnected || batchCapturing;
-  $('#capture-visible').innerHTML = icon('camera',16)+`<span>${batchCapturing ? '촬영 요청 중…' : `현재 결과 모두 촬영 (${available.length})`}</span>`;
+  $('#capture-visible').innerHTML = icon('camera',16)+`<span class="batch-full">${batchCapturing ? '촬영 요청 중…' : `현재 결과 모두 촬영 (${available.length})`}</span><span class="batch-short" aria-hidden="true">${batchCapturing ? '요청 중…' : `결과 촬영 (${available.length})`}</span>`;
+  $('#capture-visible').setAttribute('aria-label',batchCapturing ? '촬영 요청 중' : `현재 결과 모두 촬영 (${available.length})`);
   $('#capture-visible').title = '현재 검색·필터 결과에서 보류·요청·촬영 중인 사이트를 제외해요';
   $('#capture-visible').setAttribute('aria-describedby','batch-scope-help');
   $('#clear-search').hidden=!query;
@@ -526,13 +528,19 @@ function chooseAfter(id) {
   if (previous === after && site.captures.length > 1) previous = oldAfter;
   positionTimeline(site,id);
   syncLocation(); renderViewer(site);
-  const strip = $('.timeline'), active = $(`.moment[data-capture="${CSS.escape(id)}"]`);
-  if (strip && active) strip.scrollTo({left:Math.max(0, active.offsetLeft-strip.offsetLeft-strip.clientWidth/2+active.clientWidth/2), behavior:'instant'});
+  revealTimelineRecord(id);
 }
 function chooseBefore(id) {
   const site = sites.find(s => s.id === selected), oldBefore = previous;
   previous = id; if (after === id) after = oldBefore;
-  positionTimeline(site,id); syncLocation(); renderViewer(site);
+  positionTimeline(site,id); syncLocation(); renderViewer(site);revealTimelineRecord(id);
+}
+function revealTimelineRecord(id) {
+  const strip = $('.timeline'), active = $(`.moment[data-capture="${CSS.escape(id)}"]`);
+  if(!strip || !active)return;
+  const bounds=strip.getBoundingClientRect(),record=active.getBoundingClientRect();
+  if(getComputedStyle(strip).flexDirection==='column')strip.scrollTop+=record.top-bounds.top-strip.clientHeight/2+record.height/2;
+  else strip.scrollTo({left:Math.max(0,strip.scrollLeft+record.left-bounds.left-strip.clientWidth/2+record.width/2),behavior:'instant'});
 }
 function refineWorkspaceControls(site) {
   for(const [id,name] of [['edit-site','settings'],['favorite-site','star'],['add-from-viewer','plus'],['inspect-image','zoom'],['swap-records','swap'],['schedule-help','help'],['important-record','star'],['important-only','star']]){
@@ -543,10 +551,14 @@ function refineWorkspaceControls(site) {
   const shot=$('#capture-now');if(shot && pending.has(site.id) && !site.capturing)shot.innerHTML='<span class="mini-spinner"></span><span>촬영 요청 중</span>';if(shot && !site.capturing && !site.paused && !pending.has(site.id))shot.innerHTML=icon('camera')+'<span>지금 촬영</span>';
 }
 function renderViewer(site) {
-  const focused = $('#viewer').contains(document.activeElement) ? document.activeElement.id : '';
+  const focused = ($('#viewer').contains(document.activeElement) || $('#record-browser').contains(document.activeElement)) ? document.activeElement.id : '';
+  const timelineTop = $('.timeline')?.scrollTop || 0;
   const openMenuId = $('#viewer .action-menu[open]')?.id;
   const scrollLeft = $('.timeline')?.scrollLeft || 0;
   const scheduleOpen=$('#viewer-schedule')?.dataset.site===site.id && $('#viewer-schedule').open;
+  // The mobile browser reuses the same rail; discard its prior render before rebuilding.
+  $('#record-browser-content').replaceChildren();
+
   const captures = site.captures;
   if (!captures.some(c => c.id === after)) after = captures[0]?.id || '';
   if (!captures.some(c => c.id === previous) || previous === after) previous = captures.find(c => c.id !== after)?.id || '';
@@ -577,12 +589,12 @@ function renderViewer(site) {
     <details class="viewer-schedule" id="viewer-schedule" data-site="${site.id}" ${scheduleOpen ? 'open' : ''}><summary><span>${site.paused ? '기록 보류' : site.daily ? '자동 기록' : '수동 기록'}${site.daily ? ` · ${esc(scheduleLabel(site))}` : ''} · ${site.capture_mode==='full_page' ? '전체 페이지' : '상단 화면'}</span><span>촬영 설정 ${icon('down',12)}</span></summary><div class="schedule-bar"><label class="schedule" for="daily"><input id="daily" type="checkbox" role="switch" ${site.daily ? 'checked' : ''} ${site.paused ? 'disabled' : ''}><span>${site.paused ? '자동 기록 보류' : '자동 기록'}</span></label><button class="schedule-config secondary small" id="schedule-config" title="${esc(scheduleLabel(site))}${scheduleOf(site).schedule_mode==='daily_time' ? ' · 한국 시간(서울)' : ''}">${esc(scheduleLabel(site))} ${icon('down',12)}</button><span class="schedule-summary" title="${esc(scheduleText(site))}"><span class="desktop-copy">${esc(scheduleText(site))}</span><span class="compact-copy">${esc(compactScheduleText(site))}</span></span><button class="text-button" id="schedule-help" aria-label="자동 기록 방식 안내">ⓘ</button></div></details>
     ${!site.paused && site.recheck?.state === 'running' ? `<div class="recheck-note"><strong>추가 점검 진행 중</strong><span>${site.recheck.next_check_at ? `다음 확인: ${formatDate(site.recheck.next_check_at)}` : '첫 점검 일정 준비 중'} · 종료 상한 ${formatDate(site.recheck.deadline)}</span></div>` : !site.paused && site.recheck?.state === 'not_resolved' ? '<div class="recheck-note unresolved"><strong>추가 점검 종료 · 자동 촬영 미해결</strong><span>정상 화면이 저장되지 않았어요. 사이트 측 접근 허용이나 정상 주소 확인이 필요해요.</span></div>' : ''}
     <div id="capture-feedback" aria-live="polite">${site.paused ? `<div class="pause-banner"><div><strong>기록을 보류하고 있어요</strong><p>자동 촬영과 일괄 촬영에서 제외돼요. 저장된 기록은 계속 볼 수 있어요.</p></div><button class="secondary" id="resume-site">기록 재개</button></div>` : site.capturing ? `<div class="capture-banner"><span class="spinner"></span><div><strong>${site.capture_status === 'queued' ? '촬영 순서를 기다리고 있어요' : '새 기록을 촬영하고 있어요'}</strong><p>${site.capture_status === 'queued' ? '앞선 사이트의 촬영이 끝나면 자동으로 시작해요.' : '사이트를 불러와 화면을 저장해요. 보통 수 초에서 1분 정도 걸려요.'}</p></div></div>` : site.error ? `<div class="error-banner"><div><strong>${friendlyError(site.error)}</strong><p>${/HTTP 403/.test(site.error) ? '브라우저에서 정상적으로 열리는 전체 주소를 확인해 주세요. 직접 캡처한 화면을 가져올 수도 있어요.' : (captures.length ? '저장된 기록은 계속 볼 수 있어요. ' : '')+'다시 촬영하거나 잠시 후 시도해 주세요.'}</p><details><summary>오류 상세 보기</summary><pre>${esc(site.error)}</pre></details></div><div class="error-actions">${/HTTP 403/.test(site.error) ? '<button class="secondary" id="fix-site-address">주소 확인·변경</button>' : '<button class="secondary" id="retry-capture">다시 촬영</button>'}<button class="secondary" id="import-error-image">내 화면 가져오기</button></div></div>` : ''}</div>
-    ${latest ? `<div class="viewer-workspace"><div class="compare-toolbar"><div class="viewer-mode" role="group" aria-label="보기 방식"><button id="single-mode" class="${mode === 'single' ? 'active' : ''}" aria-pressed="${mode === 'single'}">단일 화면</button><button id="compare-mode" class="${mode === 'compare' ? 'active' : ''}" aria-pressed="${mode === 'compare'}" ${captures.length < 2 ? 'disabled title="두 번째 기록부터 비교할 수 있어요"' : ''}>슬라이더 비교</button><button id="split-mode" class="${mode === 'split' ? 'active' : ''}" aria-pressed="${mode === 'split'}" ${captures.length < 2 ? 'disabled title="두 번째 기록부터 비교할 수 있어요"' : ''}>나란히 보기</button><button id="diff-mode" class="${mode === 'diff' ? 'active' : ''}" aria-pressed="${mode === 'diff'}" ${captures.length < 2 ? 'disabled title="두 번째 기록부터 비교할 수 있어요"' : ''}>변경 부분</button></div><div class="image-actions">${compare ? `<button class="secondary small swap-button" id="swap-records" aria-label="왼쪽과 오른쪽 기록 바꾸기">${icon('swap')}<span>좌우 교환</span></button>` : ''}<button class="secondary small" id="inspect-image">⌕ 원본 확대</button><details class="action-menu" id="record-menu"><summary class="secondary small" id="record-menu-toggle">기록 도구 ${icon('down',12)}</summary><div class="menu-panel"><div class="menu-caption">${compare ? compareTarget === 'before' ? '왼쪽 기록' : '오른쪽 기록' : '선택한 기록'} · ${formatDate(activeRecord.created_at)}</div><a href="${activeRecord.image}" download="rewind-${hostName(site)}-${activeRecord.created_at.replace(/[:.]/g,'-')}.png">PNG 저장</a><button id="expand-view">화면 전체 보기</button><button id="import-image">화면 가져오기</button><hr><button class="danger-menu" id="delete-record" ${site.capturing ? 'disabled' : ''}>이 기록 삭제</button></div></details></div></div>
+    ${latest ? `<div class="viewer-workspace"><div class="compare-toolbar"><div class="viewer-mode" role="group" aria-label="보기 방식"><button id="single-mode" class="${mode === 'single' ? 'active' : ''}" aria-pressed="${mode === 'single'}">단일 화면</button><button id="compare-mode" class="${mode === 'compare' ? 'active' : ''}" aria-pressed="${mode === 'compare'}" ${captures.length < 2 ? 'disabled title="두 번째 기록부터 비교할 수 있어요"' : ''}>슬라이더 비교</button><button id="split-mode" class="${mode === 'split' ? 'active' : ''}" aria-pressed="${mode === 'split'}" ${captures.length < 2 ? 'disabled title="두 번째 기록부터 비교할 수 있어요"' : ''}>나란히 보기</button><button id="diff-mode" class="${mode === 'diff' ? 'active' : ''}" aria-pressed="${mode === 'diff'}" ${captures.length < 2 ? 'disabled title="두 번째 기록부터 비교할 수 있어요"' : ''}>변경 부분</button></div><div class="image-actions">${compare ? `<button class="secondary small swap-button" id="swap-records" aria-label="왼쪽과 오른쪽 기록 바꾸기">${icon('swap')}<span>좌우 교환</span></button>` : ''}<button class="secondary small" id="inspect-image">⌕ 원본 확대</button><details class="action-menu" id="record-menu"><summary class="secondary small" id="record-menu-toggle" aria-label="기록 도구"><span class="record-tool-label">기록 도구</span><span class="record-tool-short" aria-hidden="true">도구</span> ${icon('down',12)}</summary><div class="menu-panel"><div class="menu-caption">${compare ? compareTarget === 'before' ? '왼쪽 기록' : '오른쪽 기록' : '선택한 기록'} · ${formatDate(activeRecord.created_at)}</div><a href="${activeRecord.image}" download="rewind-${hostName(site)}-${activeRecord.created_at.replace(/[:.]/g,'-')}.png">PNG 저장</a><button id="expand-view">화면 전체 보기</button><button id="import-image">화면 가져오기</button><hr><button class="danger-menu" id="delete-record" ${site.capturing ? 'disabled' : ''}>이 기록 삭제</button></div></details></div></div>
     <div class="record-selectors">${compare ? `<div class="record-picker"><button id="target-before" class="record-target" aria-pressed="${compareTarget==='before'}" aria-controls="before-select">${esc(chronology.leftLabel)}</button><label class="sr-only" for="before-select">왼쪽 기록 선택</label><select id="before-select" title="${formatDate(old.created_at)}" aria-label="왼쪽 기록 선택">${options(previous,after)}</select></div>` : ''}<div class="record-picker">${compare ? `<button id="target-after" class="record-target" aria-pressed="${compareTarget==='after'}" aria-controls="after-select">${esc(chronology.rightLabel)}</button>` : '<label for="after-select">조회할 기록</label>'}<select id="after-select" title="${formatDate(latest.created_at)}" aria-label="${compare ? '오른쪽 기록 선택' : '조회할 기록'}">${options(after,compare ? previous : '')}</select></div></div>
     <div class="record-browse-bar"><div class="record-pager"><button class="secondary" id="older-record" aria-label="${esc(targetLabel)}의 이전 기록" ${activePosition>=captures.length-1 ? 'disabled' : ''}>← 이전</button><span ${compare ? 'id="comparison-gap"' : ''}>${compare ? esc(chronology.gap) : `${captures.length-position} / ${captures.length}`}</span><button class="secondary" id="newer-record" aria-label="${esc(targetLabel)}의 다음 기록" ${activePosition<=0 ? 'disabled' : ''}>다음 →</button><button class="secondary" id="latest-record" aria-label="${esc(targetLabel)}을 최신 기록으로" ${activeRecord.id===captures[0].id ? 'disabled' : ''}>최신 기록</button></div><button class="text-button" id="browse-records">전체 기록 ${captures.length}개 보기 ↓</button></div>
     ${mode === 'diff' ? '<div class="diff-controls"><label for="diff-threshold">차이 기준 <select id="diff-threshold"><option value="12">작은 차이도 표시</option><option value="32">보통</option><option value="64">큰 차이만 표시</option></select></label><a class="secondary small" id="download-diff" hidden>비교 PNG 저장</a><p id="diff-summary" role="status"></p></div>' : ''}
     <div style="--capture-ratio:${frameRatio}" class="canvas-wrapper ${longCapture ? 'long-capture' : ''} ${mode === 'split' ? 'split-wrapper' : ''}" id="capture-stage">${mode === 'diff' ? '<canvas id="diff-canvas" role="img" aria-label="변경된 부분을 분홍색으로 강조한 비교 이미지"></canvas>' : mode === 'split' ? `<figure><figcaption>${esc(chronology.leftLabel)} · ${formatDate(old.created_at)}</figcaption><img src="${old.image}" alt="${esc(old.title)} ${formatDate(old.created_at)} 화면"></figure><figure><figcaption>${esc(chronology.rightLabel)} · ${formatDate(latest.created_at)}</figcaption><img src="${latest.image}" alt="${esc(latest.title)} ${formatDate(latest.created_at)} 화면"></figure>` : `<div class="canvas"><img src="${latest.image}" alt="${esc(latest.title)} ${formatDate(latest.created_at)} 화면">${mode === 'compare' ? `<div class="before-image" style="clip-path:inset(0 ${100-ratio}% 0 0)"><img src="${old.image}" alt="${esc(old.title)} ${formatDate(old.created_at)} 왼쪽 기록"></div><div class="divider" style="left:${ratio}%"><span aria-hidden="true">↔</span></div><input id="compare-slider" class="compare-range" type="range" min="0" max="100" value="${ratio}" aria-label="왼쪽 기록 표시 비율" aria-valuetext="왼쪽 기록 ${ratio}%"><span class="image-label before">${esc(chronology.leftLabel)} · ${formatTime(old.created_at)}</span><span class="image-label after">${esc(chronology.rightLabel)} · ${formatTime(latest.created_at)}</span>` : ''}</div>`}</div>
-    <div class="viewer-note"><span>${longCapture && mode !== 'diff' ? '이미지 안을 스크롤해서 아래쪽까지 살펴보세요. ' : ''}${mode === 'diff' ? '오른쪽 기록 위에 차이를 표시해요. 광고·애니메이션·위치 이동도 변화로 잡힐 수 있어요.' : mode === 'compare' ? '↔ 슬라이더를 드래그하거나, 선택 후 방향키로 비교하세요.' : mode === 'split' ? '두 기록을 나란히 살펴보세요. 모바일에서는 위아래로 표시돼요.' : captures.length < 2 ? '한 번 더 촬영하면 두 기록을 비교할 수 있어요.' : '날짜를 선택하거나 아래 타임라인에서 보고 싶은 순간을 고르세요.'}</span>${mode === 'compare' ? '<button class="text-button" id="reset-slider">가운데로 맞추기</button>' : ''}</div></div>
+    <div class="viewer-note"><span>${longCapture && mode !== 'diff' ? '이미지 안을 스크롤해서 아래쪽까지 살펴보세요. ' : ''}${mode === 'diff' ? '오른쪽 기록 위에 차이를 표시해요. 광고·애니메이션·위치 이동도 변화로 잡힐 수 있어요.' : mode === 'compare' ? '↔ 슬라이더를 드래그하거나, 선택 후 방향키로 비교하세요.' : mode === 'split' ? '두 기록을 나란히 살펴보세요. 모바일에서는 위아래로 표시돼요.' : captures.length < 2 ? '한 번 더 촬영하면 두 기록을 비교할 수 있어요.' : '기록 선택에서 다른 시점을 열거나, 두 기록을 비교해 보세요.'}</span>${mode === 'compare' ? '<button class="text-button" id="reset-slider">가운데로 맞추기</button>' : ''}</div></div>
     <section class="timeline-section" aria-label="기록 타임라인"><div class="timeline-heading"><h2>기록 <span>${captures.length}</span></h2><div class="timeline-tools"><label for="timeline-date">날짜로 찾기</label><input id="timeline-date" type="date" value="${timelineDay}" min="${localDay(captures.at(-1).created_at)}" max="${localDay(captures[0].created_at)}">${timelineDay ? '<button class="text-button" id="clear-date">전체 보기</button>' : ''}</div></div><div class="timeline-controls"><span class="timeline-hint">${compare ? `${esc(targetLabel)}을 아래 기록으로 바꿔요.` : '아래 기록을 누르면 해당 시점을 열어요.'}</span>${filteredTimeline.length > timelinePageSize ? `<div class="timeline-pagination"><span role="status">${timelinePage*timelinePageSize+1}–${Math.min((timelinePage+1)*timelinePageSize,filteredTimeline.length)} / ${filteredTimeline.length}</span><button class="secondary small" id="timeline-prev" aria-label="이전 기록 묶음" ${timelinePage === 0 ? 'disabled' : ''}>←</button><button class="secondary small" id="timeline-next" aria-label="다음 기록 묶음" ${timelinePage === pageCount-1 ? 'disabled' : ''}>→</button></div>` : ''}</div><div class="timeline">${timeline.length ? timeline.map((c,i) => `<button id="moment-${c.id}" class="moment ${c.id === after ? 'active' : ''} ${compare && c.id === previous ? 'before-selected' : ''}" data-capture="${c.id}" aria-pressed="${c.id === (compare && compareTarget === 'before' ? previous : after)}" aria-label="${formatDate(c.created_at)} ${compare ? compareTarget === 'before' ? '왼쪽' : '오른쪽' : ''} 기록 선택"><div class="moment-image"><img loading="lazy" src="${c.image}" alt="">${c.id === after ? `<span class="moment-selected">${compare ? '오른쪽' : '선택됨'}</span>` : compare && c.id === previous ? '<span class="moment-selected muted">왼쪽</span>' : ''}</div><span class="moment-date">${formatDate(c.created_at,false)}${c.source === 'import' ? ' · 직접 가져옴' : ''}</span><strong>${formatTime(c.created_at)}</strong><span class="moment-title" title="${esc(c.note || c.title)}">${c.important ? '★ ' : ''}${esc(c.note || c.title)}</span></button>`).join('') : '<div class="timeline-empty">조건에 맞는 기록이 없어요. <button class="text-button" id="empty-clear-date">전체 기록 보기</button></div>'}</div></section>` : `<div class="empty viewer-empty"><div class="empty-art" aria-hidden="true"><span>${site.paused ? 'Ⅱ' : site.capturing ? '◷' : '↶'}</span></div><h3>${site.paused ? '아직 저장된 기록이 없어요' : site.capturing ? '첫 기록을 기다리는 중' : '아직 저장된 기록이 없어요'}</h3><p>${site.paused ? '기록을 재개하면 다시 촬영할 수 있어요.' : site.capturing ? '촬영이 끝나면 여기에 화면이 나타나요.<br>다른 사이트를 둘러봐도 촬영은 계속돼요.' : '지금 촬영을 눌러 첫 기록을 남겨보세요.'}</p>${!site.paused && !site.capturing ? '<button class="primary" id="first-capture">◎ 첫 화면 촬영하기</button>' : ''}</div>`}`;
   if($('.viewer-workspace'))$('.viewer-workspace').after($('#viewer-schedule'));
   if($('.viewer-note') && $('#browse-records'))$('.viewer-note').append($('#browse-records'));
@@ -621,8 +633,8 @@ function renderViewer(site) {
   };
   if (openMenuId) { const menu = document.getElementById(openMenuId); if (menu) menu.open = true; }
   mountChangeTools(site,activeRecord);
-  mountCalendar(site,{api,esc,formatDate,localDay,initialDay:timelineDay || (activeRecord ? localDay(activeRecord.created_at) : ''),onDay:day=>{timelineDay=day;timelinePage=0;const current=sites.find(s=>s.id===site.id),record=current.captures.find(c=>localDay(c.created_at)===day);if(record){if(mode!=='single' && compareTarget==='before')chooseBefore(record.id);else chooseAfter(record.id);}else renderViewer(current);},onCapture:id=>{if(mode!=='single' && compareTarget==='before')chooseBefore(id);else chooseAfter(id);},onRetry:()=>captureNow(site.id)});
-  if (!latest) { refineWorkspaceControls(site); if (focused) document.getElementById(focused)?.focus({preventScroll:true}); return; }
+  mountCalendar(site,{api,esc,formatDate,localDay,initialDay:timelineDay || (activeRecord ? localDay(activeRecord.created_at) : ''),onDay:day=>{timelineDay=day;timelinePage=0;const current=sites.find(s=>s.id===site.id),record=current.captures.find(c=>localDay(c.created_at)===day);if(record){if(mode!=='single' && compareTarget==='before')chooseBefore(record.id);else chooseAfter(record.id);}else renderViewer(current);},onCapture:id=>{if(mode!=='single' && compareTarget==='before')chooseBefore(id);else chooseAfter(id);if(mobileNavigation.matches && $('#record-browser').open)$('#record-browser').close();},onRetry:()=>captureNow(site.id)});
+  if (!latest) { if($('#record-browser').open)$('#record-browser').close(); refineWorkspaceControls(site); if (focused) document.getElementById(focused)?.focus({preventScroll:true}); return; }
   $('#capture-stage').insertAdjacentHTML('beforeend', '<button type="button" class="secondary fullscreen-exit" id="exit-fullscreen">⤢ 전체 화면 닫기</button>');
   $('#exit-fullscreen').onclick = () => document.exitFullscreen();
   $('#inspect-image').onclick = () => openInspector(site);
@@ -642,21 +654,22 @@ function renderViewer(site) {
   $('#older-record').onclick=()=>chooseTarget(captures[activePosition+1].id);
   $('#newer-record').onclick=()=>chooseTarget(captures[activePosition-1].id);
   $('#latest-record').onclick=()=>chooseTarget(captures[0].id);
-  $('#browse-records').onclick=()=>{const heading=$('.timeline-heading');heading.tabIndex=-1;heading.focus({preventScroll:true});heading.scrollIntoView({block:'start',behavior:matchMedia('(prefers-reduced-motion:reduce)').matches?'instant':'smooth'});};
+  $('#browse-records').onclick=openRecordBrowser;
   $('#expand-view').onclick = async () => { try { await $('#capture-stage').requestFullscreen(); } catch { toast('이 브라우저에서는 전체 화면을 지원하지 않아요. PNG 저장으로 원본을 확인할 수 있어요.'); } };
   const importantFilter = document.createElement('button'); importantFilter.id='important-only'; importantFilter.className='secondary small'; importantFilter.textContent='★ 중요 기록만'; importantFilter.setAttribute('aria-pressed',String(importantOnly)); $('.timeline-controls').prepend(importantFilter);
   importantFilter.onclick=()=>{importantOnly=!importantOnly;timelinePage=0;renderViewer(site);$('#important-only')?.focus({preventScroll:true});};
   $('#timeline-date').onchange = event => { timelineDay = event.target.value; timelinePage = 0; renderViewer(site); };
   for (const id of ['clear-date','empty-clear-date']) if ($(`#${id}`)) $(`#${id}`).onclick = () => { timelineDay = ''; if (id === 'empty-clear-date') { importantOnly = false; changeFilter='all'; } timelinePage = 0; renderViewer(site); };
-  if ($('#target-before')) $('#target-before').onclick = () => { compareTarget = 'before'; syncLocation(); renderViewer(site); };
-  if ($('#target-after')) $('#target-after').onclick = () => { compareTarget = 'after'; syncLocation(); renderViewer(site); };
+  if ($('#target-before')) $('#target-before').onclick = () => { compareTarget = 'before';positionTimeline(site,previous); syncLocation(); renderViewer(site);revealTimelineRecord(previous); };
+  if ($('#target-after')) $('#target-after').onclick = () => { compareTarget = 'after';positionTimeline(site,after); syncLocation(); renderViewer(site);revealTimelineRecord(after); };
   if ($('#timeline-prev')) $('#timeline-prev').onclick = () => { timelinePage--; renderViewer(site); };
   if ($('#timeline-next')) $('#timeline-next').onclick = () => { timelinePage++; renderViewer(site); };
-  $$('.moment').forEach(el => el.onclick = () => compare && compareTarget === 'before' ? chooseBefore(el.dataset.capture) : chooseAfter(el.dataset.capture));
+  $$('.moment').forEach(el => el.onclick = () => { if(compare && compareTarget === 'before')chooseBefore(el.dataset.capture);else chooseAfter(el.dataset.capture);if(mobileNavigation.matches && $('#record-browser').open)$('#record-browser').close(); });
   $$('.canvas-wrapper img').forEach(img => img.addEventListener('error', () => { if (!$('.image-load-error')) { const message = document.createElement('p'); message.className = 'image-load-error'; message.textContent = '화면 이미지를 불러오지 못했어요. 페이지를 새로고침해 주세요.'; $('#capture-stage').append(message); } }));
   if (mode === 'diff') mountDiff(old,latest);
   mountRecordTools(site,{activeRecord,recordLabel:targetLabel,api,refresh,toast,render:()=>renderViewer(sites.find(s=>s.id===site.id)),esc,formatDate,localDay});
-  if ($('.timeline')) $('.timeline').scrollLeft = scrollLeft;
+  arrangeRecordWorkspace();
+  if ($('.timeline')) { $('.timeline').scrollLeft = scrollLeft; $('.timeline').scrollTop = timelineTop; }
   refineWorkspaceControls(site);
   if (focused) document.getElementById(focused)?.focus({preventScroll:true});
 }
@@ -866,6 +879,7 @@ function renderOrganizationFilters() {
     select.value=current;
   }
   $('#clear-organization').hidden=!groupFilter && !tagFilter;
+  $('.organization-filters').hidden=!groupFilter && !tagFilter && !sites.some(s=>s.group_name || s.tags?.length);
 }
 $('#group-filter').onchange=event=>{groupFilter=event.target.value;syncLocation();renderArchive();};
 $('#tag-filter').onchange=event=>{tagFilter=event.target.value;syncLocation();renderArchive();};
@@ -937,3 +951,45 @@ async function loadActivity(append=false) {
     if(generation===activityGeneration){$('#activity-results').setAttribute('aria-busy','false');$('#activity-more').disabled=false;}
   }
 }
+
+
+function arrangeRecordWorkspace() {
+  const workspace=$('.viewer-workspace'),timeline=$('.timeline-section');
+  if(!workspace || !timeline)return;
+  const layout=document.createElement('div');layout.className='viewer-layout';
+  const primary=document.createElement('div');primary.className='viewer-primary';
+  const rail=document.createElement('aside');rail.className='viewer-rail';rail.setAttribute('aria-label','기록 탐색과 촬영 설정');
+  workspace.before(layout);layout.append(primary,rail);primary.append(workspace);
+  for(const selector of ['.record-metadata','.content-analysis']) {const node=$(selector);if(node)primary.append(node);}
+  rail.append(timeline);
+  for(const selector of ['#record-calendar','#viewer-schedule']) {const node=$(selector);if(node)rail.append(node);}
+  const trigger=$('#browse-records');
+  trigger.className='secondary small record-browser-trigger';const count=sites.find(s=>s.id===selected)?.captures.length || 0;
+  trigger.innerHTML=`<span class="record-trigger-full">기록 선택 (${count})</span><span class="record-trigger-short" aria-hidden="true">기록 ${count}</span>`;trigger.setAttribute('aria-label',`기록 ${count}개 탐색`);
+  trigger.setAttribute('aria-haspopup',mobileNavigation.matches?'dialog':'false');
+  trigger.setAttribute('aria-controls',mobileNavigation.matches?'record-browser':'timeline-heading');
+  $('.timeline-heading').id='timeline-heading';
+  $('.image-actions').prepend(trigger);
+  if($('#record-browser').open)$('#record-browser-content').append(rail);
+}
+function openRecordBrowser() {
+  if(mobileNavigation.matches) {
+    const rail=$('.viewer-rail');if(!rail)return;
+    rememberModal($('#record-browser'));$('#record-browser-content').append(rail);
+    $('#record-browser').showModal();$('#close-records').focus();revealTimelineRecord(mode!=='single' && compareTarget==='before' ? previous : after);
+  } else {
+    const heading=$('.timeline-heading');heading.tabIndex=-1;heading.focus({preventScroll:true});
+    if(!matchMedia('(min-width:1100px)').matches)heading.scrollIntoView({block:'start',behavior:matchMedia('(prefers-reduced-motion:reduce)').matches?'instant':'smooth'});
+  }
+}
+$('#close-records').onclick=()=>$('#record-browser').close();
+$('#record-browser').addEventListener('close',()=>{
+  const rail=$('#record-browser .viewer-rail');if(rail && $('.viewer-layout'))$('.viewer-layout').append(rail);
+});
+mobileNavigation.addEventListener('change',()=>{if($('#record-browser').open)$('#record-browser').close();});
+
+function arrangeArchiveToolbar() {
+  const button=$('#capture-visible'),parent=mobileNavigation.matches ? $('.section-tools') : $('.archive-filters');
+  if(button.parentElement!==parent)parent.append(button);
+}
+mobileNavigation.addEventListener('change',arrangeArchiveToolbar);

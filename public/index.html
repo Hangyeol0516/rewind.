@@ -4,7 +4,7 @@
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#f5f3ef"><title>Rewind — 웹의 시간을 기록하세요</title>
   <meta name="description" content="웹사이트를 촬영하고, 시간이 만든 변화를 비교하는 개인 아카이브.">
-  <link rel="stylesheet" href="/style.css"><script src="/app.js" type="module"></script>
+  <link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/workspace.css"><script src="/app.js" type="module"></script>
 </head>
 <body>
   <a class="skip-link" href="#main">본문으로 건너뛰기</a>
@@ -19,7 +19,7 @@
   <main id="main" tabindex="-1">
     <header class="topbar"><nav id="breadcrumb" aria-label="현재 위치">내 아카이브</nav><div class="topbar-actions"><span class="connection" id="connection"><span class="status-dot"></span> 연결됨</span><button class="text-button help-trigger" id="open-help"><span data-icon="help"></span> 사용 안내</button></div></header>
     <div class="connection-banner" id="connection-banner" role="alert" hidden><span>서버 연결이 끊겼어요. 마지막으로 불러온 기록을 표시하고 있어요.</span><button class="secondary" id="reconnect">다시 연결</button></div>
-    <section class="page-head" id="archive-intro"><div><h1>내 아카이브</h1><p>웹사이트를 촬영하고 저장한 기록을 비교하세요.</p></div><button class="primary" id="add-site"><span data-icon="plus"></span> 사이트 추가 <kbd>N</kbd></button></section>
+    <section class="page-head" id="archive-intro"><div class="archive-heading"><span class="archive-eyebrow">PERSONAL WEB ARCHIVE</span><h1>내 아카이브<span class="heading-period">.</span></h1><p>모아 둔 웹사이트, 쌓여 가는 시간.</p></div><button class="primary" id="add-site"><span data-icon="plus"></span> 사이트 추가 <kbd>N</kbd></button></section>
     <section class="stats" id="archive-stats" aria-label="아카이브 통계"><div><span>사이트</span><strong id="stat-sites">—</strong></div><div><span>저장 기록</span><strong id="stat-captures">—</strong></div><div><span>자동 기록</span><strong id="stat-daily">—</strong></div></section>
     <section id="archive-section" aria-label="사이트 아카이브">
       <div class="archive-toolbar"><div class="section-heading"><h2>사이트 <span id="heading-count">0</span></h2><div class="section-tools"><label class="search"><span data-icon="search" aria-hidden="true"></span><input id="search" placeholder="사이트 이름이나 주소 검색" aria-label="사이트 검색" type="search"><button type="button" id="clear-search" class="icon-control" aria-label="검색어 지우기" title="검색어 지우기" hidden><span data-icon="close"></span></button><kbd>/</kbd></label><select id="sort" aria-label="사이트 정렬"><option value="recent">최근 기록순</option><option value="created">최근 추가순</option><option value="name">이름순</option></select><div class="view-toggle" role="group" aria-label="목록 보기 방식"><button id="grid-view" aria-label="카드 보기" aria-pressed="true"><span data-icon="grid"></span></button><button id="list-view" aria-label="간결한 목록 보기" aria-pressed="false"><span data-icon="list"></span></button></div></div></div>
@@ -29,6 +29,7 @@
     <section id="viewer" hidden aria-label="사이트 기록"></section>
     <footer><button class="text-button" id="keyboard-help">키보드 단축키 <kbd>?</kbd></button><span>Rewind <span class="footer-separator">/</span> 개인 웹 아카이브</span></footer>
   </main>
+  <dialog id="record-browser" aria-labelledby="record-browser-title"><header class="record-browser-header"><div><span class="archive-eyebrow">TIMELINE</span><h2 id="record-browser-title">기록 탐색</h2></div><button class="icon-control" id="close-records" aria-label="기록 탐색 닫기">×</button></header><div id="record-browser-content"></div></dialog>
   <dialog id="activity-dialog" class="activity-dialog" aria-labelledby="activity-title"><div class="dialog-top"><div><h2 id="activity-title">촬영 상태·이력</h2><p class="form-note">성공과 실패, 다시 촬영한 결과를 함께 확인하세요.</p></div><button id="close-activity" class="icon-button" aria-label="촬영 이력 닫기">×</button></div><div class="activity-toolbar"><label>사이트 <select id="activity-site"><option value="">모든 사이트</option></select></label><label>결과 <select id="activity-status"><option value="all">전체</option><option value="failed">실패</option><option value="success">성공</option><option value="running">촬영 중</option></select></label><button id="refresh-activity" class="secondary">새로고침</button></div><p class="form-note">촬영 요청은 대기열에 추가돼요. 보류 중인 사이트는 설정에서 재개한 뒤 촬영할 수 있어요.</p><div id="activity-results" aria-live="polite"></div><button id="activity-more" class="secondary" hidden>이전 이력 더 보기</button></dialog>
   <dialog id="add-dialog" aria-labelledby="add-title"><form id="add-form" novalidate>
     <div class="add-dialog-body"><div class="dialog-top"><h2 id="add-title">사이트 추가</h2><button type="button" class="icon-button" id="close-dialog" aria-label="닫기">×</button></div><p class="modal-intro">주소를 입력하면 첫 화면을 바로 저장해요.</p>

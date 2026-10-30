@@ -1,3 +1,4 @@
+import {showRecordBrowser,closeRecordBrowser} from './ui-test-helpers.mjs';
 // Run against an isolated server; fixtures never request an external website.
 import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
@@ -68,14 +69,14 @@ try{
   await page.locator('#before-select').selectOption(ids[0]);await page.locator('#diff-summary[data-ready=true]').waitFor();
  }
  for(const width of[390,320]){
-  await page.setViewportSize({width,height:844});
+  await page.setViewportSize({width,height:844});await showRecordBrowser(page);
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
   await page.locator('#select-records').click();assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
-  await page.screenshot({path:`test-results/record-tools-${width}.png`,fullPage:true});await page.locator('#select-records').click();
+  await page.screenshot({path:`test-results/record-tools-${width}.png`,fullPage:true});await page.locator('#select-records').click();await closeRecordBrowser(page);
  }
  await page.locator('#single-mode').click();const cleared=new URL(page.url()).searchParams.get('after');await page.locator('#edit-record-note').click();await page.locator('#record-note-input').fill('');await page.locator('#save-record-note').click();await page.locator('#record-note-dialog').waitFor({state:'hidden'});
  assert.equal(db.prepare('SELECT note FROM captures WHERE id=?').get(cleared).note,'');
- await page.locator('#select-records').click();await page.locator('#range-start').fill('2026-01-01');await page.locator('#range-end').fill('2026-12-31');await page.locator('#select-range').click();await page.locator('#delete-selected').click();assert.match(await page.locator('#bulk-delete-description').textContent(),/중요 표시한 기록 1개/);await page.locator('#confirm-bulk-delete').click();await page.locator('#bulk-delete-dialog').waitFor({state:'hidden'});await page.locator('.viewer-empty').waitFor();assert.equal(db.prepare('SELECT count(*) n FROM captures WHERE site_id=?').get(sid).n,0);
+ await showRecordBrowser(page);await page.locator('#select-records').click();await page.locator('#range-start').fill('2026-01-01');await page.locator('#range-end').fill('2026-12-31');await page.locator('#select-range').click();await page.locator('#delete-selected').click();assert.match(await page.locator('#bulk-delete-description').textContent(),/중요 표시한 기록 1개/);await page.locator('#confirm-bulk-delete').click();await page.locator('#bulk-delete-dialog').waitFor({state:'hidden'});await page.locator('.viewer-empty').waitFor();assert.equal(db.prepare('SELECT count(*) n FROM captures WHERE site_id=?').get(sid).n,0);
  assert.deepEqual(errors,[]);console.log('Record tools passed: atomic/cross-site validation, cross-page/range selection, confirmed deletion, files removed, persistent important/note, safe text, target side, empty filters, diff ratio/PNG/deep link/identical pair, mobile widths, delete-all fallback.');
 }finally{
  await browser.close();for(const id of[sid,other])db.prepare('DELETE FROM sites WHERE id=?').run(id);db.close();await Promise.all(ids.map(id=>rm(resolve(data,'captures',`${id}.png`),{force:true})));
